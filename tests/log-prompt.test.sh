@@ -103,6 +103,64 @@ check stdout_empty_and_exit_zero t_stdout_empty_and_exit_zero
 check permissions_are_private t_permissions_are_private
 check content_is_literal t_content_is_literal
 
+# ---------------------------------------------------------------- Task 3
+
+# make_repo <dir>: git repo on branch feature/x with one empty commit
+make_repo() {
+  mkdir -p "$1" &&
+    git -C "$1" init -q -b feature/x &&
+    git -C "$1" -c user.name=t -c user.email=t@t -c commit.gpgsign=false \
+      commit -q --allow-empty -m init
+}
+
+t_branch_in_repo() {
+  setup
+  make_repo "$TMP/repo"
+  run_hook "$(payload "hi" "$TMP/repo" "s1")"
+  has_line "- **Branch:** feature/x"
+}
+
+t_branch_detached() {
+  setup
+  make_repo "$TMP/repo"
+  git -C "$TMP/repo" checkout -q --detach
+  run_hook "$(payload "hi" "$TMP/repo" "s1")"
+  grep -qE '^- \*\*Branch:\*\* \(detached [0-9a-f]{7,}\)$' "$(today_file)"
+}
+
+t_branch_outside_repo() {
+  setup
+  run_hook "$(payload "hi" "$TMP/ws" "s1")"
+  has_line "- **Branch:** -"
+}
+
+t_branch_missing_cwd() {
+  setup
+  run_hook "$(payload "hi" "$TMP/does-not-exist" "s1")"
+  has_line "- **Branch:** -"
+}
+
+t_branch_empty_cwd_ignores_hook_directory() {
+  setup
+  make_repo "$TMP/repo"
+  (cd "$TMP/repo" && printf '%s' "$(payload "hi" "" "s1")" | bash "$HOOK" >/dev/null 2>&1)
+  has_line "- **Branch:** -"
+}
+
+t_cwd_with_spaces() {
+  setup
+  make_repo "$TMP/my work dir"
+  run_hook "$(payload "hi" "$TMP/my work dir" "s1")"
+  has_line "- **Workspace:** $TMP/my work dir" && has_line "- **Branch:** feature/x"
+}
+
+check branch_in_repo t_branch_in_repo
+check branch_detached t_branch_detached
+check branch_outside_repo t_branch_outside_repo
+check branch_missing_cwd t_branch_missing_cwd
+check branch_empty_cwd_ignores_hook_directory t_branch_empty_cwd_ignores_hook_directory
+check cwd_with_spaces t_cwd_with_spaces
+
 # ---------------------------------------------------------------- summary
 
 echo

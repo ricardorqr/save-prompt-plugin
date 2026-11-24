@@ -9,9 +9,23 @@
 
 PROMPTS_DIR="${CLAUDE_PROMPTS_DIR:-$HOME/.claude/prompts}"
 
-# branch_of <cwd>: print the git branch of <cwd>. (Implemented in a later step.)
+# branch_of <cwd>: print the git branch of <cwd>, "(detached <sha>)" for a
+# detached HEAD, or "-" when <cwd> is not a usable git working directory.
 branch_of() {
-  printf '%s\n' "-"
+  local cwd="$1" branch
+  # `git -C ""` silently means "the current directory", so reject empty/missing.
+  if [ -z "$cwd" ] || [ ! -d "$cwd" ]; then
+    printf '%s\n' "-"
+    return
+  fi
+  branch="$(git -C "$cwd" rev-parse --abbrev-ref HEAD 2>/dev/null)" || {
+    printf '%s\n' "-"
+    return
+  }
+  if [ "$branch" = "HEAD" ]; then
+    branch="(detached $(git -C "$cwd" rev-parse --short HEAD 2>/dev/null))"
+  fi
+  printf '%s\n' "$branch"
 }
 
 # quote_prompt: stdin -> every line prefixed "> " (blank lines become ">")
