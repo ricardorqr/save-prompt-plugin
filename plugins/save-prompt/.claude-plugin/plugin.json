@@ -1,0 +1,18 @@
+{
+  "name": "save-prompt",
+  "displayName": "Save Prompt",
+  "description": "Appends every prompt you submit, with time, workspace and git branch, to a daily Markdown file in ~/.claude/prompts.",
+  "version": "0.1.0",
+  "author": {
+    "name": "ricardorqr"
+  },
+  "homepage": "https://github.com/ricardorqr/save-prompt-plugin",
+  "repository": "https://github.com/ricardorqr/save-prompt-plugin",
+  "keywords": [
+    "prompts",
+    "history",
+    "logging",
+    "hook",
+    "productivity"
+  ]
+}

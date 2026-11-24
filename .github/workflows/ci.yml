@@ -1,0 +1,24 @@
+name: CI
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+
+jobs:
+  test:
+    name: Bash test suite
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      # Runs every tests/*.test.sh. The suite needs bash, jq and git, all of
+      # which are preinstalled on ubuntu-latest.
+      - name: Run test suite
+        run: |
+          fail=0
+          for t in tests/*.test.sh; do
+            echo "== $t =="
+            bash "$t" || fail=1
+          done
+          exit $fail

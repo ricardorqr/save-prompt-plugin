@@ -1,0 +1,19 @@
+{
+  "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
+  "name": "save-prompt-marketplace",
+  "description": "Log every Claude Code prompt to a daily Markdown file.",
+  "owner": {
+    "name": "ricardorqr"
+  },
+  "plugins": [
+    {
+      "name": "save-prompt",
+      "description": "Appends every prompt you submit (time, workspace, git branch, session) to a daily Markdown file in ~/.claude/prompts.",
+      "author": {
+        "name": "ricardorqr"
+      },
+      "category": "productivity",
+      "source": "./plugins/save-prompt"
+    }
+  ]
+}
