@@ -161,6 +161,134 @@ check branch_missing_cwd t_branch_missing_cwd
 check branch_empty_cwd_ignores_hook_directory t_branch_empty_cwd_ignores_hook_directory
 check cwd_with_spaces t_cwd_with_spaces
 
+# ---------------------------------------------------------------- Task 4
+
+t_second_entry_appends() {
+  setup
+  run_hook "$(payload "one" "$TMP/ws" "s1")"
+  run_hook "$(payload "two" "$TMP/ws" "s1")"
+  local f
+  f="$(today_file)"
+  [ "$(grep -c '^# Prompts' "$f")" = "1" ] && [ "$(grep -c '^## ' "$f")" = "2" ] &&
+    has_line "> one" && has_line "> two"
+}
+
+t_empty_prompt_is_skipped() {
+  setup
+  run_hook "$(payload "" "$TMP/ws" "s1")"
+  local rc1=$RC
+  run_hook "$(payload "   " "$TMP/ws" "s1")"
+  [ "$rc1" -eq 0 ] && [ "$RC" -eq 0 ] && [ -z "$OUT" ] && [ ! -e "$CLAUDE_PROMPTS_DIR" ]
+}
+
+t_malformed_json_is_ignored() {
+  setup
+  run_hook "not json"
+  [ "$RC" -eq 0 ] && [ -z "$OUT" ] && [ ! -e "$CLAUDE_PROMPTS_DIR" ]
+}
+
+t_missing_jq_warns_and_exits_zero() {
+  setup
+  # a PATH holding every tool the hook needs EXCEPT jq, so only the jq guard
+  # (not an accidental "mkdir: command not found") can stop it from writing
+  local t
+  mkdir -p "$TMP/nojqbin"
+  for t in cat date sed mkdir rmdir sleep git; do
+    ln -s "$(command -v "$t")" "$TMP/nojqbin/$t"
+  done
+  OUT="$(printf '%s' "$(payload "hi" "$TMP/ws" "s1")" |
+    env PATH="$TMP/nojqbin" /bin/bash "$HOOK" 2>"$TMP/stderr")"
+  RC=$?
+  ERR="$(cat "$TMP/stderr")"
+  [ "$RC" -eq 0 ] && [ -z "$OUT" ] && [[ "$ERR" == *"save-prompt: jq not found"* ]] &&
+    [ ! -e "$CLAUDE_PROMPTS_DIR" ]
+}
+
+t_missing_session_id_uses_dash() {
+  setup
+  run_hook "$(jq -n --arg p "hi" --arg c "$TMP/ws" '{prompt: $p, cwd: $c}')"
+  has_line "- **Session:** -"
+}
+
+t_unicode_roundtrip() {
+  setup
+  run_hook "$(payload "héllo 日本語 🎉" "$TMP/ws" "s1")"
+  has_line "> héllo 日本語 🎉"
+}
+
+t_large_prompt_intact() {
+  setup
+  # build via files: a 200 KB value is too big for one argv entry on Linux
+  { head -c 200000 /dev/zero | tr '\0' 'x'; printf 'END'; } >"$TMP/big.txt"
+  jq -n --rawfile p "$TMP/big.txt" --arg c "$TMP/ws" --arg s "s1" \
+    '{prompt: $p, cwd: $c, session_id: $s}' >"$TMP/big.json"
+  run_hook "$(cat "$TMP/big.json")"
+  local f
+  f="$(today_file)"
+  [ "$RC" -eq 0 ] && grep -q 'xEND$' "$f" && [ "$(wc -c <"$f")" -ge 200000 ]
+}
+
+t_concurrent_runs_do_not_interleave() {
+  setup
+  local i f
+  for i in $(seq 1 20); do
+    (printf '%s' "$(payload "msg-$i" "$TMP/ws" "s$i")" | bash "$HOOK" >/dev/null 2>&1) &
+  done
+  wait
+  f="$(today_file)"
+  [ "$(grep -c '^# Prompts' "$f")" = "1" ] && [ "$(grep -c '^## ' "$f")" = "20" ] || return 1
+  for i in $(seq 1 20); do
+    [ "$(grep -cxF "> msg-$i" "$f")" = "1" ] || return 1
+  done
+  # each quote line sits two lines below its own Session line (blank line between)
+  awk '{ if ($0 ~ /^> msg-/) { n=$0; sub(/^> msg-/, "", n)
+           if (p2 != "- **Session:** s" n || p1 != "") bad=1 }
+         p2=p1; p1=$0 }
+       END { exit bad }' "$f"
+}
+
+t_waits_for_held_lock() {
+  setup
+  mkdir -p "$CLAUDE_PROMPTS_DIR/.lock"
+  (printf '%s' "$(payload "hello" "$TMP/ws" "s1")" | bash "$HOOK" >/dev/null 2>&1) &
+  local pid=$!
+  sleep 0.5
+  [ ! -e "$(today_file)" ] || { wait "$pid"; return 1; } # must still be waiting
+  rmdir "$CLAUDE_PROMPTS_DIR/.lock"
+  wait "$pid"
+  has_line "> hello" && [ ! -e "$CLAUDE_PROMPTS_DIR/.lock" ]
+}
+
+t_stale_lock_does_not_lose_prompt() {
+  setup
+  mkdir -p "$CLAUDE_PROMPTS_DIR/.lock"
+  local start end
+  start="$(date +%s)"
+  run_hook "$(payload "hello" "$TMP/ws" "s1")"
+  end="$(date +%s)"
+  [ "$RC" -eq 0 ] && has_line "> hello" && [ $((end - start)) -lt 10 ]
+}
+
+t_default_dir_is_home() {
+  setup
+  mkdir -p "$TMP/home"
+  printf '%s' "$(payload "hello" "$TMP/ws" "s1")" |
+    env -u CLAUDE_PROMPTS_DIR HOME="$TMP/home" bash "$HOOK" >/dev/null 2>&1
+  [ -f "$TMP/home/.claude/prompts/$(date +%F).md" ]
+}
+
+check second_entry_appends t_second_entry_appends
+check empty_prompt_is_skipped t_empty_prompt_is_skipped
+check malformed_json_is_ignored t_malformed_json_is_ignored
+check missing_jq_warns_and_exits_zero t_missing_jq_warns_and_exits_zero
+check missing_session_id_uses_dash t_missing_session_id_uses_dash
+check unicode_roundtrip t_unicode_roundtrip
+check large_prompt_intact t_large_prompt_intact
+check concurrent_runs_do_not_interleave t_concurrent_runs_do_not_interleave
+check waits_for_held_lock t_waits_for_held_lock
+check stale_lock_does_not_lose_prompt t_stale_lock_does_not_lose_prompt
+check default_dir_is_home t_default_dir_is_home
+
 # ---------------------------------------------------------------- summary
 
 echo
