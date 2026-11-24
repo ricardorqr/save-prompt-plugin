@@ -11,10 +11,20 @@ PROMPTS_DIR="${CLAUDE_PROMPTS_DIR:-$HOME/.claude/prompts}"
 LOCK_DIR="$PROMPTS_DIR/.lock"
 HAVE_LOCK=0
 
-# acquire_lock: take the mkdir lock, waiting up to 5s (50 x 0.1s). If it cannot
-# be taken (e.g. a stale lock), carry on WITHOUT it rather than lose the prompt.
+# break_stale_lock: the lock is held for milliseconds, so one older than a
+# minute was abandoned (crash, kill -9, reboot). Remove it so it cannot slow
+# every later prompt.
+break_stale_lock() {
+  if [ -n "$(find "$LOCK_DIR" -maxdepth 0 -type d -mmin +1 2>/dev/null)" ]; then
+    rmdir "$LOCK_DIR" 2>/dev/null
+  fi
+}
+
+# acquire_lock: take the mkdir lock, waiting up to ~5s (50 x 0.1s). If it cannot
+# be taken (a fresh orphan lock), carry on WITHOUT it rather than lose the prompt.
 acquire_lock() {
   local i
+  break_stale_lock
   for i in $(seq 1 50); do
     if mkdir "$LOCK_DIR" 2>/dev/null; then
       HAVE_LOCK=1
@@ -95,7 +105,13 @@ main() {
     "$now" "$cwd" "$branch" "${session:0:8}" "$quoted")"
 
   umask 077
-  mkdir -p "$PROMPTS_DIR"
+  mkdir -p "$PROMPTS_DIR" 2>/dev/null
+  # an unwritable directory can never be locked or written: say so once and
+  # return at once instead of waiting on a lock that cannot be taken
+  if [ ! -d "$PROMPTS_DIR" ] || [ ! -w "$PROMPTS_DIR" ]; then
+    echo "save-prompt: cannot write to $PROMPTS_DIR; this prompt was not logged" >&2
+    return 0
+  fi
   trap release_lock EXIT
   acquire_lock
   append_entry "$entry"

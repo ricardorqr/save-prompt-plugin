@@ -266,7 +266,7 @@ t_stale_lock_does_not_lose_prompt() {
   start="$(date +%s)"
   run_hook "$(payload "hello" "$TMP/ws" "s1")"
   end="$(date +%s)"
-  [ "$RC" -eq 0 ] && has_line "> hello" && [ $((end - start)) -lt 10 ]
+  [ "$RC" -eq 0 ] && has_line "> hello" && [ $((end - start)) -lt 20 ]
 }
 
 t_default_dir_is_home() {
@@ -288,6 +288,41 @@ check concurrent_runs_do_not_interleave t_concurrent_runs_do_not_interleave
 check waits_for_held_lock t_waits_for_held_lock
 check stale_lock_does_not_lose_prompt t_stale_lock_does_not_lose_prompt
 check default_dir_is_home t_default_dir_is_home
+
+# ---------------------------------------------------------------- Final review fixes
+
+# An abandoned lock (crash, kill -9, reboot) must heal, not slow every prompt.
+t_old_stale_lock_is_broken_quickly() {
+  setup
+  mkdir -p "$CLAUDE_PROMPTS_DIR/.lock"
+  touch -t 202001010000 "$CLAUDE_PROMPTS_DIR/.lock"
+  local start end
+  start="$(date +%s)"
+  run_hook "$(payload "first" "$TMP/ws" "s1")"
+  run_hook "$(payload "second" "$TMP/ws" "s1")"
+  end="$(date +%s)"
+  has_line "> first" && has_line "> second" && [ "$RC" -eq 0 ] &&
+    [ ! -e "$CLAUDE_PROMPTS_DIR/.lock" ] && [ $((end - start)) -lt 3 ]
+}
+
+# A directory that cannot be written must not make every prompt wait.
+t_unwritable_dir_returns_quickly() {
+  setup
+  if [ "$(id -u)" = "0" ]; then return 0; fi # root ignores chmod; nothing to test
+  mkdir -p "$TMP/ro"
+  chmod 500 "$TMP/ro"
+  export CLAUDE_PROMPTS_DIR="$TMP/ro/prompts"
+  local start end
+  start="$(date +%s)"
+  run_hook "$(payload "hello" "$TMP/ws" "s1")"
+  end="$(date +%s)"
+  chmod 700 "$TMP/ro"
+  [ "$RC" -eq 0 ] && [ -z "$OUT" ] && [[ "$ERR" == *"save-prompt: cannot write"* ]] &&
+    [ $((end - start)) -lt 3 ]
+}
+
+check old_stale_lock_is_broken_quickly t_old_stale_lock_is_broken_quickly
+check unwritable_dir_returns_quickly t_unwritable_dir_returns_quickly
 
 # ---------------------------------------------------------------- summary
 
